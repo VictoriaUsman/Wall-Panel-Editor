@@ -98,9 +98,9 @@ export function PanelControls({ readOnly = false, onchange }: Props) {
               <label className="label mb-0">Rotation</label>
               <span className="text-xs text-gray-500 font-mono">{selected.rotation_deg}°</span>
             </div>
-            <div className="flex gap-1">
-              {[90, -90, 180].map(deg => (
-                <button key={deg} onClick={() => handleRotate(deg)} className="btn-secondary flex-1 text-xs px-1">
+            <div className="grid grid-cols-2 gap-1">
+              {[90, -90, 180, -180].map(deg => (
+                <button key={deg} onClick={() => handleRotate(deg)} className="btn-secondary text-xs px-1 py-1">
                   {deg > 0 ? `+${deg}°` : `${deg}°`}
                 </button>
               ))}

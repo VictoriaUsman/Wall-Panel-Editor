@@ -62,30 +62,29 @@ function PanelShape({ panel, scale, canvasSize, photo, holes, selected, readOnly
 
   const w = canvasSize.width_mm * scale
   const h = canvasSize.height_mm * scale
-  const x = panel.x_mm * scale
-  const y = panel.y_mm * scale
+  // Group positioned at panel centre — rotation naturally pivots about the centre.
+  // x_mm/y_mm in store is the top-left corner; add half-dimensions to get centre.
+  const cx = (panel.x_mm + canvasSize.width_mm / 2) * scale
+  const cy = (panel.y_mm + canvasSize.height_mm / 2) * scale
 
   const handleDragEnd = useCallback((e: KonvaEventObject<DragEvent>) => {
     const node = e.target
-    // node.x()/y() are layer-relative (layer has its own offset already applied)
-    const newX = node.x() / scale
-    const newY = node.y() / scale
+    // node.x/y() = panel centre in layer px → convert back to top-left mm
+    const newX = node.x() / scale - canvasSize.width_mm / 2
+    const newY = node.y() / scale - canvasSize.height_mm / 2
     onDragEnd(newX, newY)
-  }, [scale, onDragEnd])
+  }, [scale, canvasSize.width_mm, canvasSize.height_mm, onDragEnd])
 
   return (
     <Group
-      x={x} y={y}
+      x={cx} y={cy}
       rotation={panel.rotation_deg}
-      offset={{ x: w / 2, y: h / 2 }}
       draggable={!readOnly}
       onDragMove={e => {
-        // node.x/y() are layer-relative. With offset {w/2, h/2} and rect at (-w/2,-h/2),
-        // the rect's top-left = (node.x-w, node.y-h) and bottom-right = (node.x, node.y).
-        // Clamp so all four sides stay within the wall (0..wallWidthPx, 0..wallHeightPx).
+        // node.x/y() = centre of panel. Keep all four edges inside the wall.
         const node = e.target
-        node.x(Math.max(w, Math.min(wallWidthPx, node.x())))
-        node.y(Math.max(h, Math.min(wallHeightPx, node.y())))
+        node.x(Math.max(w / 2, Math.min(wallWidthPx - w / 2, node.x())))
+        node.y(Math.max(h / 2, Math.min(wallHeightPx - h / 2, node.y())))
       }}
       onClick={onSelect}
       onTap={onSelect}
@@ -199,18 +198,19 @@ export function WallEditor({ wallWidthMm, wallHeightMm, readOnly = false, onchan
     const drop_x_mm = px / scale
     const drop_y_mm = py / scale
 
-    // Check if drop lands inside an existing panel's bounding box — if so, swap photo
+    // Check if drop lands inside an existing panel — if so, swap photo instead of adding
     if (photoId) {
       const hit = panels.find(p => {
         const cs = canvasSizes.find(s => s.id === p.canvas_size_id)
         if (!cs) return false
         const hw = cs.width_mm / 2
         const hh = cs.height_mm / 2
-        const cx = p.x_mm + hw
-        const cy = p.y_mm + hh
-        // Inverse-rotate drop point relative to panel centre
-        const dx = drop_x_mm - cx
-        const dy = drop_y_mm - cy
+        // p.x_mm/y_mm is top-left; compute centre
+        const pcx = p.x_mm + hw
+        const pcy = p.y_mm + hh
+        // Inverse-rotate drop point into panel-local space
+        const dx = drop_x_mm - pcx
+        const dy = drop_y_mm - pcy
         const rad = -Math.PI * p.rotation_deg / 180
         const lx = Math.cos(rad) * dx - Math.sin(rad) * dy
         const ly = Math.sin(rad) * dx + Math.cos(rad) * dy
@@ -224,8 +224,10 @@ export function WallEditor({ wallWidthMm, wallHeightMm, readOnly = false, onchan
       }
     }
 
-    const x_mm = snap(drop_x_mm)
-    const y_mm = snap(drop_y_mm)
+    const cs = canvasSizes.find(s => s.id === canvasSizeId)
+    // Place panel so its centre is at the cursor; store top-left in mm
+    const x_mm = snap(drop_x_mm - (cs?.width_mm ?? 0) / 2)
+    const y_mm = snap(drop_y_mm - (cs?.height_mm ?? 0) / 2)
 
     const newPanel: EditorPanel = {
       id: uuidv4(),
