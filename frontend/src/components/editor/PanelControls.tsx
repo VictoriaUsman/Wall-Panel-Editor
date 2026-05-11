@@ -94,7 +94,10 @@ export function PanelControls({ readOnly = false, onchange }: Props) {
 
           {/* Rotation */}
           <div>
-            <label className="label">Rotation: {selected.rotation_deg}°</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0">Rotation</label>
+              <span className="text-xs text-gray-500 font-mono">{selected.rotation_deg}°</span>
+            </div>
             <div className="flex gap-1">
               {[90, -90, 180].map(deg => (
                 <button key={deg} onClick={() => handleRotate(deg)} className="btn-secondary flex-1 text-xs px-1">

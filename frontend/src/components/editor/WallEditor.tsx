@@ -111,13 +111,20 @@ function PanelShape({ panel, scale, canvasSize, photo, holes, selected, readOnly
         />
       )}
 
-      {/* Panel label */}
+      {/* Panel label — bottom strip */}
+      <Rect
+        x={-w / 2} y={h / 2 - 16}
+        width={w} height={16}
+        fill="rgba(0,0,0,0.45)"
+        cornerRadius={[0, 0, 2, 2]}
+        listening={false}
+      />
       <Text
-        x={-w / 2} y={-h / 2 + 4}
+        x={-w / 2} y={h / 2 - 13}
         width={w}
         text={canvasSize.name}
-        fontSize={Math.max(8, Math.min(12, w / 8))}
-        fill={selected ? PANEL_SELECTED : '#4B3A2A'}
+        fontSize={Math.max(7, Math.min(11, w / 8))}
+        fill="white"
         align="center"
         listening={false}
       />
@@ -189,8 +196,36 @@ export function WallEditor({ wallWidthMm, wallHeightMm, readOnly = false, onchan
     const rect = containerRef.current!.getBoundingClientRect()
     const px = e.clientX - rect.left - offsetX
     const py = e.clientY - rect.top - offsetY
-    const x_mm = snap(px / scale)
-    const y_mm = snap(py / scale)
+    const drop_x_mm = px / scale
+    const drop_y_mm = py / scale
+
+    // Check if drop lands inside an existing panel's bounding box — if so, swap photo
+    if (photoId) {
+      const hit = panels.find(p => {
+        const cs = canvasSizes.find(s => s.id === p.canvas_size_id)
+        if (!cs) return false
+        const hw = cs.width_mm / 2
+        const hh = cs.height_mm / 2
+        const cx = p.x_mm + hw
+        const cy = p.y_mm + hh
+        // Inverse-rotate drop point relative to panel centre
+        const dx = drop_x_mm - cx
+        const dy = drop_y_mm - cy
+        const rad = -Math.PI * p.rotation_deg / 180
+        const lx = Math.cos(rad) * dx - Math.sin(rad) * dy
+        const ly = Math.sin(rad) * dx + Math.cos(rad) * dy
+        return Math.abs(lx) <= hw && Math.abs(ly) <= hh
+      })
+      if (hit) {
+        const { swapPhoto } = useEditorStore.getState()
+        swapPhoto(hit.id, photoId)
+        onchange?.()
+        return
+      }
+    }
+
+    const x_mm = snap(drop_x_mm)
+    const y_mm = snap(drop_y_mm)
 
     const newPanel: EditorPanel = {
       id: uuidv4(),
@@ -202,7 +237,7 @@ export function WallEditor({ wallWidthMm, wallHeightMm, readOnly = false, onchan
     }
     addPanel(newPanel)
     onchange?.()
-  }, [readOnly, canvasSizes, scale, offsetX, offsetY, panels.length, addPanel, snap, onchange])
+  }, [readOnly, canvasSizes, scale, offsetX, offsetY, panels, addPanel, snap, onchange])
 
   return (
     <div

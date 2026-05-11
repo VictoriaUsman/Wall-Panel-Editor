@@ -101,7 +101,6 @@ export function JobPage() {
 
   const isReadOnly = job.status === 'PROOFING' && !user?.is_operator
   const isFinished = ['APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
-  const canSubmit = job.status === 'ARRANGING' && !user?.is_operator
   const canApprove = job.status === 'PROOFING' && !user?.is_operator
   const showPdfs = ['PROOFING', 'APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
 
@@ -118,13 +117,18 @@ export function JobPage() {
         </span>
         {saveMutation.isPending && <span className="text-xs text-gray-400">Saving…</span>}
 
-        {/* Action buttons */}
-        {canSubmit && (
-          <button onClick={() => transitionMutation.mutate('ARRANGING')} className="btn-secondary text-sm">
-            Mark as arranged
+        {/* Action buttons — customer status progression */}
+        {!user?.is_operator && job.status === 'DRAFT' && (
+          <button onClick={() => transitionMutation.mutate('UPLOADED')} className="btn-secondary text-sm">
+            Mark photos uploaded
           </button>
         )}
-        {canSubmit && job.status === 'ARRANGING' && (
+        {!user?.is_operator && job.status === 'UPLOADED' && (
+          <button onClick={() => transitionMutation.mutate('ARRANGING')} className="btn-secondary text-sm">
+            Start arranging
+          </button>
+        )}
+        {!user?.is_operator && job.status === 'ARRANGING' && (
           <button onClick={() => transitionMutation.mutate('PROOFING')} className="btn-primary text-sm">
             Submit for review
           </button>
