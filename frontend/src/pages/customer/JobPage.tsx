@@ -106,6 +106,16 @@ export function JobPage() {
     onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed'),
   })
 
+  const deleteJobMutation = useMutation({
+    mutationFn: () => jobsApi.delete(jobId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      toast.success('Job deleted')
+      navigate('/dashboard')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed to delete'),
+  })
+
   if (jobLoading || !job) return <div className="p-8 text-gray-400">Loading…</div>
 
   const isReadOnly = job.status === 'PROOFING' && !user?.is_operator
@@ -187,6 +197,20 @@ export function JobPage() {
           <a href={pdfApi.printMastersUrl(job.id)} download className="btn-primary text-sm">
             ↓ Print masters
           </a>
+        )}
+
+        {!user?.is_operator && (
+          <button
+            onClick={() => {
+              if (window.confirm(`Delete "${job.title}"? This cannot be undone.`)) {
+                deleteJobMutation.mutate()
+              }
+            }}
+            className="btn-danger text-sm"
+            disabled={deleteJobMutation.isPending}
+          >
+            {deleteJobMutation.isPending ? 'Deleting…' : 'Delete job'}
+          </button>
         )}
       </header>
 

@@ -107,8 +107,6 @@ async def delete_job(
     job = await _get_job_for_user(job_id, user, db)
     if user.is_operator:
         raise HTTPException(403, "Operators cannot delete jobs")
-    if job.status in (JobStatus.APPROVED, JobStatus.PRINTED, JobStatus.SHIPPED):
-        raise HTTPException(400, "Cannot delete a finalised job")
     await db.delete(job)
     await db.commit()
 

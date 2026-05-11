@@ -96,34 +96,29 @@ export function DashboardPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {jobs?.map(job => {
-              const canDelete = !['APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
-              return (
-                <div key={job.id} className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-                  <Link to={`/jobs/${job.id}`} className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{job.title}</p>
-                    <p className="text-sm text-gray-500">{job.wall_width_mm} × {job.wall_height_mm} mm</p>
-                  </Link>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${STATUS_COLOURS[job.status]}`}>
-                    {STATUS_LABELS[job.status]}
-                  </span>
-                  <span className="text-xs text-gray-400 shrink-0">{new Date(job.created_at).toLocaleDateString()}</span>
-                  {canDelete && (
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Delete "${job.title}"? This cannot be undone.`)) {
-                          deleteJob.mutate(job.id)
-                        }
-                      }}
-                      className="btn-danger text-xs shrink-0"
-                      disabled={deleteJob.isPending}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              )
-            })}
+            {jobs?.map(job => (
+              <div key={job.id} className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
+                <Link to={`/jobs/${job.id}`} className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{job.title}</p>
+                  <p className="text-sm text-gray-500">{job.wall_width_mm} × {job.wall_height_mm} mm</p>
+                </Link>
+                <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${STATUS_COLOURS[job.status]}`}>
+                  {STATUS_LABELS[job.status]}
+                </span>
+                <span className="text-xs text-gray-400 shrink-0">{new Date(job.created_at).toLocaleDateString()}</span>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete "${job.title}"? This cannot be undone.`)) {
+                      deleteJob.mutate(job.id)
+                    }
+                  }}
+                  className="btn-danger text-xs shrink-0"
+                  disabled={deleteJob.isPending}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </main>
