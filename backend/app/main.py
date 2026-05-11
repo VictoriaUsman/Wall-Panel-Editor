@@ -15,7 +15,15 @@ FRONTEND_DIST = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables if they don't exist (dev convenience; use alembic in prod)
+    from app.config import get_settings
+    import logging
+    db_url = get_settings().DATABASE_URL
+    # Log host only (never log credentials)
+    try:
+        host = db_url.split("@")[1].split("/")[0]
+    except Exception:
+        host = "unknown"
+    logging.getLogger("uvicorn").info(f"Connecting to DB host: {host}")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

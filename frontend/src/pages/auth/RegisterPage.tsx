@@ -21,7 +21,12 @@ export function RegisterPage() {
       setAuth(user, '')
       navigate('/dashboard')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Registration failed')
+      const status = err.response?.status
+      if (status === 400) {
+        toast.error('An account with that email already exists')
+      } else {
+        toast.error('Registration failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }

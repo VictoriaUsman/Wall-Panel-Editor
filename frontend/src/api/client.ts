@@ -8,7 +8,8 @@ const api = axios.create({
 api.interceptors.response.use(
   r => r,
   err => {
-    if (err.response?.status === 401) {
+    const isAuthPage = ['/login', '/register'].includes(window.location.pathname)
+    if (err.response?.status === 401 && !isAuthPage) {
       useAuthStore.getState().logout()
       window.location.href = '/login'
     }

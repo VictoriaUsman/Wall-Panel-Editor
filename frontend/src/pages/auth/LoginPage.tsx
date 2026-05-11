@@ -20,7 +20,12 @@ export function LoginPage() {
       setAuth(user, '')
       navigate(user.is_operator ? '/operator' : '/dashboard')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Login failed')
+      const status = err.response?.status
+      if (status === 401 || status === 404) {
+        toast.error('Invalid email or password')
+      } else {
+        toast.error('Something went wrong. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
