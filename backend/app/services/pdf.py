@@ -178,7 +178,7 @@ def _draw_panel_on_tile(
     if not panel.has_hole_config:
         c.setFont("Helvetica-Oblique", 6)
         c.setFillColor(colors.orange)
-        c.drawCentredString(cw[0], cw[1] - 11, "⚠ needs hole config")
+        c.drawCentredString(cw[0], cw[1] - 11, "[!] needs hole config")
 
     if not draw_holes:
         return
@@ -247,7 +247,7 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
             c.setFont("Helvetica-Bold", 8)
             c.drawString(_mm(5), _mm(5), f"Tile {tile_num}/{total_tiles}  (col {col+1}/{cols}, row {row+1}/{rows})")
             c.setFont("Helvetica", 7)
-            c.drawString(_mm(5), _mm(12), f"{layout.job_title}  —  Wall origin offset: ({tile_origin_x:.0f}, {tile_origin_y:.0f}) mm")
+            c.drawString(_mm(5), _mm(12), f"{layout.job_title}  |  Wall origin offset: ({tile_origin_x:.0f}, {tile_origin_y:.0f}) mm")
 
             # CRITICAL footer: print-size warning
             _draw_print_footer(c, tile_w_mm, tile_h_mm)
@@ -263,6 +263,12 @@ def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: flo
     """
     Page 1 of the tiled PDF: calibration square + full printing instructions.
     Safety-critical: customer MUST verify this before drilling.
+
+    Layout:
+      [title / warning]
+      [100mm square] | [measure / reprint note]
+      [full-width 2-column printer settings]
+      [assembly instructions]
     """
     page_w_pt = _mm(tile_w_mm)
     page_h_pt = _mm(tile_h_mm)
@@ -275,14 +281,14 @@ def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: flo
     # Title
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(_mm(10), y, f"HANGING TEMPLATE — {job_title}")
+    c.drawString(_mm(10), y, f"HANGING TEMPLATE - {job_title}")
     y -= _mm(8)
     c.setFont("Helvetica-Bold", 11)
     c.setFillColor(COLOUR_HOLE_MARK)
-    c.drawString(_mm(10), y, "★ STEP 1: VERIFY PRINT SCALE BEFORE DOING ANYTHING ELSE ★")
+    c.drawString(_mm(10), y, ">>> STEP 1: VERIFY PRINT SCALE BEFORE DOING ANYTHING ELSE <<<")
     y -= _mm(12)
 
-    # Calibration square: exactly 100 mm × 100 mm
+    # Calibration square: exactly 100 mm x 100 mm
     sq_x = _mm(10)
     sq_y = y - _mm(100)
     sq_side = _mm(100)
@@ -291,70 +297,108 @@ def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: flo
     c.setLineWidth(1.0)
     c.rect(sq_x, sq_y, sq_side, sq_side, stroke=1, fill=0)
 
-    # Dimension arrows
+    # Horizontal dimension label (below square, clear of instruction column)
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(COLOUR_CALIBRATION)
-    c.drawCentredString(sq_x + sq_side / 2, sq_y - _mm(6), "← 100 mm →")
-    c.drawString(sq_x + sq_side + _mm(3), sq_y + sq_side / 2 - _mm(2), "↕ 100 mm")
+    c.drawCentredString(sq_x + sq_side / 2, sq_y - _mm(7), "<-- 100 mm -->")
 
-    # Instructions beside the square
+    # Vertical dimension label (right of square, rotated so it reads upward)
+    c.saveState()
+    c.translate(sq_x + sq_side + _mm(8), sq_y + sq_side / 2)
+    c.rotate(90)
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(COLOUR_CALIBRATION)
+    c.drawCentredString(0, 0, "<-- 100 mm -->")
+    c.restoreState()
+
+    # Short measurement check beside the square (fits in ~72 mm column)
+    ix = sq_x + sq_side + _mm(18)
+    iy = y - _mm(8)
     c.setFont("Helvetica-Bold", 10)
     c.setFillColor(colors.black)
-    ix = sq_x + sq_side + _mm(15)
-    iy = sq_y + sq_side
-    line_h = _mm(6)
+    c.drawString(ix, iy, "MEASURE THIS SQUARE")
+    iy -= _mm(6)
+    c.setFont("Helvetica", 9)
+    c.drawString(ix, iy, "Both sides must be exactly 100 mm.")
+    iy -= _mm(6)
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(COLOUR_HOLE_MARK)
+    c.drawString(ix, iy, "If either side is wrong: REPRINT.")
+    iy -= _mm(8)
+    c.setFont("Helvetica", 8)
+    c.setFillColor(colors.black)
+    c.drawString(ix, iy, "See printer settings below.")
 
-    def iline(text, bold=False, red=False, size=9):
-        nonlocal iy
-        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        c.setFillColor(COLOUR_HOLE_MARK if red else colors.black)
-        # Word-wrap at ~60 chars
-        c.drawString(ix, iy, text)
-        iy -= line_h
+    # --- Full-width printer settings (two columns) below the square ---
+    y2 = sq_y - _mm(15)
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(colors.black)
+    c.drawString(_mm(10), y2, "How to print at 100% / Actual Size:")
+    y2 -= _mm(7)
 
-    iline("MEASURE THIS SQUARE WITH A RULER.", bold=True, size=10)
-    iline("Both sides must be exactly 100 mm.", size=9)
-    iline("If either side is wrong: REPRINT.", bold=True, red=True)
-    iy -= _mm(3)
-    iline("How to print at 100% / Actual Size:", bold=True)
-    iy -= _mm(2)
-    iline("• Adobe Acrobat/Reader:", bold=True)
-    iline("  File → Print → Page Sizing: 'Actual Size'")
-    iline("  (NOT 'Fit' or 'Shrink to printable area')")
-    iy -= _mm(2)
-    iline("• Chrome / Edge browser:", bold=True)
-    iline("  Print → More settings → Scale: 100%")
-    iline("  Uncheck 'Fit to page'")
-    iy -= _mm(2)
-    iline("• macOS Preview:", bold=True)
-    iline("  File → Print → Scale: 100%")
-    iline("  Uncheck 'Scale to fit'")
-    iy -= _mm(2)
-    iline("• Windows Print dialog:", bold=True)
-    iline("  Printer Properties → Paper/Quality →")
-    iline("  'Actual size' or 'None' scaling")
+    col1_x = _mm(12)
+    col2_x = _mm(107)
+    lh = _mm(5)
+
+    # Left column: Acrobat + Chrome
+    ly = y2
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    c.drawString(col1_x, ly, "Adobe Acrobat / Reader:")
+    ly -= lh
+    c.setFont("Helvetica", 8)
+    c.drawString(col1_x, ly, "File > Print > Page Sizing: 'Actual Size'")
+    ly -= lh
+    c.drawString(col1_x, ly, "NOT 'Fit' or 'Shrink to printable area'")
+    ly -= _mm(4)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(col1_x, ly, "Chrome / Edge browser:")
+    ly -= lh
+    c.setFont("Helvetica", 8)
+    c.drawString(col1_x, ly, "Print > More settings > Scale: 100%")
+    ly -= lh
+    c.drawString(col1_x, ly, "Uncheck 'Fit to page'")
+
+    # Right column: macOS Preview + Windows
+    ry = y2
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    c.drawString(col2_x, ry, "macOS Preview:")
+    ry -= lh
+    c.setFont("Helvetica", 8)
+    c.drawString(col2_x, ry, "File > Print > Scale: 100%")
+    ry -= lh
+    c.drawString(col2_x, ry, "Uncheck 'Scale to fit'")
+    ry -= _mm(4)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(col2_x, ry, "Windows Print dialog:")
+    ry -= lh
+    c.setFont("Helvetica", 8)
+    c.drawString(col2_x, ry, "Printer Properties > Paper/Quality >")
+    ry -= lh
+    c.drawString(col2_x, ry, "'Actual size' or 'None' scaling")
 
     # Assembly instructions
-    y2 = sq_y - _mm(20)
+    y2 = min(ly, ry) - _mm(12)
     c.setFont("Helvetica-Bold", 10)
     c.setFillColor(colors.black)
     c.drawString(_mm(10), y2, "ASSEMBLY & DRILLING INSTRUCTIONS")
     y2 -= _mm(7)
 
     instructions = [
-        ("STEP 2 — Tile alignment:",
+        ("STEP 2 - Tile alignment:",
          "Cut along the crop marks (small grey lines at page corners). Overlap neighbouring"),
         ("",
          "tiles so the crop marks align. Tape from behind with low-tack masking tape."),
-        ("STEP 3 — Position on wall:",
+        ("STEP 3 - Position on wall:",
          "Use a spirit level. Align the top edge of the template to your chosen height."),
         ("",
          "Mark the wall edges in pencil so you can reposition if the tape slips."),
-        ("STEP 4 — Drill:",
-         "Drill through the paper at each red ✕. Use a 4–6 mm bit for D-ring anchors."),
+        ("STEP 4 - Drill:",
+         "Drill through the paper at each red X. Use a 4-6 mm bit for D-ring anchors."),
         ("",
-         "Hold the template flat against the wall while drilling — don't let it shift."),
-        ("STEP 5 — Remove:",
+         "Hold the template flat against the wall while drilling - do not let it shift."),
+        ("STEP 5 - Remove:",
          "Peel the template away. Erase pencil lines. Hang your panels."),
     ]
 
@@ -380,7 +424,7 @@ def _draw_print_footer(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: float):
     c.setFont("Helvetica-Bold", 7)
     c.drawCentredString(
         _mm(tile_w_mm) / 2, y,
-        "⚠  PRINT AT 100% / ACTUAL SIZE — NEVER 'Fit to Page' or 'Shrink to Printable Area'  ⚠"
+        "[!]  PRINT AT 100% / ACTUAL SIZE -- NEVER 'Fit to Page' or 'Shrink to Printable Area'  [!]"
     )
 
 
@@ -481,7 +525,7 @@ def build_reference_sheet(layout: WallLayout) -> bytes:
     # Title
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
-    c.drawString(_mm(margin_mm), page_h_pt - _mm(margin_mm - 5), f"Reference Sheet — {layout.job_title}")
+    c.drawString(_mm(margin_mm), page_h_pt - _mm(margin_mm - 5), f"Reference Sheet - {layout.job_title}")
     c.setFont("Helvetica", 8)
     c.drawString(_mm(margin_mm), page_h_pt - _mm(margin_mm + 3),
                  f"Wall: {layout.wall_width_mm:.0f} × {layout.wall_height_mm:.0f} mm  |  Scale 1:{1/scale:.0f}")

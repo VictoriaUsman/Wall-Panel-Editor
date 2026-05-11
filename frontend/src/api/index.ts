@@ -21,6 +21,7 @@ export const jobsApi = {
     api.patch<Job>(`/jobs/${id}`, data),
   transition: (id: string, to: string) =>
     api.post<Job>(`/jobs/${id}/transition`, { to }),
+  delete: (id: string) => api.delete(`/jobs/${id}`),
   sendProof: (id: string, proof_url: string) =>
     api.post<Job>(`/jobs/${id}/send-proof`, { proof_url }),
 }

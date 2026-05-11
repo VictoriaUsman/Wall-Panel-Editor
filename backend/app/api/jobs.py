@@ -102,6 +102,21 @@ async def transition_job(
     return _job_out(job)
 
 
+@router.delete("/{job_id}", status_code=204)
+async def delete_job(
+    job_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    job = await _get_job_for_user(job_id, user, db)
+    if user.is_operator:
+        raise HTTPException(403, "Operators cannot delete jobs")
+    if job.status in (JobStatus.APPROVED, JobStatus.PRINTED, JobStatus.SHIPPED):
+        raise HTTPException(400, "Cannot delete a finalised job")
+    await db.delete(job)
+    await db.commit()
+
+
 @router.post("/{job_id}/send-proof", response_model=JobOut)
 async def send_proof(
     job_id: str,
