@@ -221,24 +221,51 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
     _draw_calibration_page(c, tile_w_mm, tile_h_mm, layout.job_title)
     c.showPage()
 
-    # Tile grid
-    cols = math.ceil(layout.wall_width_mm / tile_w_mm)
-    rows = math.ceil(layout.wall_height_mm / tile_h_mm)
+    # Compute the bounding box of all panels (+ margin) so we only generate
+    # tiles that actually contain panel content.  For walls where panels fit
+    # within a single A4, this eliminates the nearly-empty extra tile that
+    # appears when the wall dimension slightly exceeds the page size.
+    from app.services.geometry import rotate_point_about, panel_center as _pc
+    BBOX_MARGIN = 5.0
+    if layout.panels:
+        xs: List[float] = []
+        ys: List[float] = []
+        for panel in layout.panels:
+            centre = _pc(panel.x_mm, panel.y_mm, panel.width_mm, panel.height_mm)
+            for lx, ly in [(0, 0), (panel.width_mm, 0),
+                           (panel.width_mm, panel.height_mm), (0, panel.height_mm)]:
+                wp = Point(panel.x_mm + lx, panel.y_mm + ly)
+                rp = rotate_point_about(wp, centre, panel.rotation_deg)
+                xs.append(rp.x_mm)
+                ys.append(rp.y_mm)
+        eff_x0 = max(0.0, min(xs) - BBOX_MARGIN)
+        eff_y0 = max(0.0, min(ys) - BBOX_MARGIN)
+        eff_x1 = min(layout.wall_width_mm, max(xs) + BBOX_MARGIN)
+        eff_y1 = min(layout.wall_height_mm, max(ys) + BBOX_MARGIN)
+    else:
+        eff_x0, eff_y0 = 0.0, 0.0
+        eff_x1, eff_y1 = layout.wall_width_mm, layout.wall_height_mm
+
+    eff_w = eff_x1 - eff_x0
+    eff_h = eff_y1 - eff_y0
+
+    # Use epsilon to avoid a spurious extra tile when eff_w/eff_h is an exact
+    # multiple of the page dimension (float rounding could push ceil over).
+    cols = max(1, math.ceil(eff_w / tile_w_mm - 1e-9))
+    rows = max(1, math.ceil(eff_h / tile_h_mm - 1e-9))
     total_tiles = cols * rows
 
-    # When the wall fits in one tile per axis, centre it on the page.
-    # This is a pure visual offset — scale is unchanged and all hole
-    # positions remain mutually correct.
-    x_center_offset = (tile_w_mm - layout.wall_width_mm) / 2 if cols == 1 else 0.0
-    y_center_offset = (tile_h_mm - layout.wall_height_mm) / 2 if rows == 1 else 0.0
+    # When the effective area fits in one tile per axis, centre it on the page.
+    x_center_offset = (tile_w_mm - eff_w) / 2 if cols == 1 else 0.0
+    y_center_offset = (tile_h_mm - eff_h) / 2 if rows == 1 else 0.0
 
     tile_num = 1
 
     for row in range(rows):
         for col in range(cols):
-            # Effective tile origin in wall coords (negative = content shifted onto page)
-            tile_origin_x = col * tile_w_mm - x_center_offset
-            tile_origin_y = row * tile_h_mm - y_center_offset
+            # Tile origin: the wall coordinate shown at the tile's top-left corner
+            tile_origin_x = eff_x0 + col * tile_w_mm - x_center_offset
+            tile_origin_y = eff_y0 + row * tile_h_mm - y_center_offset
 
             # Wall visibility within this tile (tile coords, mm)
             x_wall_lo = max(0.0, -tile_origin_x)
