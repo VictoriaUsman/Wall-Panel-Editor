@@ -1,0 +1,49 @@
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.db.session import get_db
+from app.db.models.user import User
+from app.core.security import hash_password, verify_password, create_access_token
+from app.core.deps import get_current_user
+from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserOut
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=TokenResponse)
+async def register(body: RegisterRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Email already registered")
+
+    user = User(email=body.email, hashed_password=hash_password(body.password))
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_access_token(str(user.id), user.is_operator)
+    response.set_cookie("access_token", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(401, "Invalid credentials")
+
+    token = create_access_token(str(user.id), user.is_operator)
+    response.set_cookie("access_token", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token")
+    return {"ok": True}
+
+
+@router.get("/me", response_model=UserOut)
+async def me(user: User = Depends(get_current_user)):
+    return UserOut(id=str(user.id), email=user.email, is_operator=user.is_operator)
