@@ -10,6 +10,8 @@ import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://wpd:wpd@localhost:5432/wpd")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 from app.db.base import Base
 from app.db.models.user import User
