@@ -92,10 +92,6 @@ async def transition_job(
     if new_status not in VALID_TRANSITIONS.get(job.status, []):
         raise HTTPException(400, f"Invalid transition {job.status} → {new_status}")
 
-    # Customers cannot transition to PROOFING (only operator sends proofs)
-    if not user.is_operator and new_status == JobStatus.PROOFING:
-        raise HTTPException(403, "Only operators can send proofs")
-
     job.status = new_status
     await db.commit()
     await db.refresh(job)
@@ -124,15 +120,19 @@ async def send_proof(
     operator: User = Depends(get_current_operator),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Operator marks proof as sent. Job must already be in PROOFING
+    (customer submitted for review). Sets proof_url so the customer's
+    Approve button becomes active. Status stays PROOFING.
+    """
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(404, "Job not found")
-    if job.status != JobStatus.ARRANGING:
-        raise HTTPException(400, "Job must be in ARRANGING to send proof")
+    if job.status != JobStatus.PROOFING:
+        raise HTTPException(400, "Job must be in PROOFING (customer must submit for review first)")
 
-    job.proof_url = body.get("proof_url", "")
-    job.status = JobStatus.PROOFING
+    job.proof_url = body.get("proof_url") or "sent"
     await db.commit()
     await db.refresh(job)
     return _job_out(job)

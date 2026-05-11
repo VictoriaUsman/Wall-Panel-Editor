@@ -97,12 +97,23 @@ export function JobPage() {
     onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed'),
   })
 
+  const sendProofMutation = useMutation({
+    mutationFn: () => jobsApi.sendProof(jobId!, ''),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['job', jobId] })
+      toast.success('Proof sent — customer can now approve')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.detail || 'Failed'),
+  })
+
   if (jobLoading || !job) return <div className="p-8 text-gray-400">Loading…</div>
 
   const isReadOnly = job.status === 'PROOFING' && !user?.is_operator
   const isFinished = ['APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
-  const canApprove = job.status === 'PROOFING' && !user?.is_operator
-  const showPdfs = ['PROOFING', 'APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
+  const proofSent = !!job.proof_url
+  const canApprove = job.status === 'PROOFING' && !user?.is_operator && proofSent
+  const awaitingProof = job.status === 'PROOFING' && !user?.is_operator && !proofSent
+  const showPdfs = proofSent && ['PROOFING', 'APPROVED', 'PRINTED', 'SHIPPED'].includes(job.status)
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -145,9 +156,9 @@ export function JobPage() {
         )}
 
         {/* Operator actions */}
-        {user?.is_operator && job.status === 'ARRANGING' && (
-          <button onClick={() => transitionMutation.mutate('PROOFING')} className="btn-primary text-sm">
-            Send proof
+        {user?.is_operator && job.status === 'PROOFING' && !proofSent && (
+          <button onClick={() => sendProofMutation.mutate()} disabled={sendProofMutation.isPending} className="btn-primary text-sm">
+            {sendProofMutation.isPending ? 'Sending…' : 'Send proof'}
           </button>
         )}
         {user?.is_operator && job.status === 'APPROVED' && (
@@ -178,6 +189,13 @@ export function JobPage() {
           </a>
         )}
       </header>
+
+      {/* Awaiting proof banner */}
+      {awaitingProof && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-sm text-amber-800">
+          Your layout has been submitted for review. The operator will send you a proof before you can approve.
+        </div>
+      )}
 
       {/* Editor */}
       <div className="flex flex-1 gap-3 p-4 overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>

@@ -225,18 +225,44 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
     cols = math.ceil(layout.wall_width_mm / tile_w_mm)
     rows = math.ceil(layout.wall_height_mm / tile_h_mm)
     total_tiles = cols * rows
+
+    # When the wall fits in one tile per axis, centre it on the page.
+    # This is a pure visual offset — scale is unchanged and all hole
+    # positions remain mutually correct.
+    x_center_offset = (tile_w_mm - layout.wall_width_mm) / 2 if cols == 1 else 0.0
+    y_center_offset = (tile_h_mm - layout.wall_height_mm) / 2 if rows == 1 else 0.0
+
     tile_num = 1
 
     for row in range(rows):
         for col in range(cols):
-            tile_origin_x = col * tile_w_mm
-            tile_origin_y = row * tile_h_mm
+            # Effective tile origin in wall coords (negative = content shifted onto page)
+            tile_origin_x = col * tile_w_mm - x_center_offset
+            tile_origin_y = row * tile_h_mm - y_center_offset
 
             # Background (white)
             c.setFillColor(colors.white)
             c.rect(0, 0, page_w_pt, page_h_pt, stroke=0, fill=1)
 
             _draw_crop_marks(c, tile_w_mm, tile_h_mm)
+
+            # Dashed wall-boundary box so customer sees the exact wall area
+            tl = wall_to_tile_pdf(Point(0, 0), tile_origin_x, tile_origin_y, tile_h_mm)
+            br = wall_to_tile_pdf(
+                Point(layout.wall_width_mm, layout.wall_height_mm),
+                tile_origin_x, tile_origin_y, tile_h_mm,
+            )
+            box_x = tl.x_pt
+            box_y = br.y_pt  # ReportLab bottom-left origin: br is lower y
+            box_w = br.x_pt - tl.x_pt
+            box_h = tl.y_pt - br.y_pt
+            if box_w > 0 and box_h > 0:
+                c.saveState()
+                c.setStrokeColor(COLOUR_GRID)
+                c.setLineWidth(0.5)
+                c.setDash([4, 3])
+                c.rect(box_x, box_y, box_w, box_h, stroke=1, fill=0)
+                c.restoreState()
 
             # Draw all panels that intersect this tile
             for panel in layout.panels:
@@ -247,7 +273,7 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
             c.setFont("Helvetica-Bold", 8)
             c.drawString(_mm(5), _mm(5), f"Tile {tile_num}/{total_tiles}  (col {col+1}/{cols}, row {row+1}/{rows})")
             c.setFont("Helvetica", 7)
-            c.drawString(_mm(5), _mm(12), f"{layout.job_title}  |  Wall origin offset: ({tile_origin_x:.0f}, {tile_origin_y:.0f}) mm")
+            c.drawString(_mm(5), _mm(12), f"{layout.job_title}  |  Wall: {layout.wall_width_mm:.0f} x {layout.wall_height_mm:.0f} mm")
 
             # CRITICAL footer: print-size warning
             _draw_print_footer(c, tile_w_mm, tile_h_mm)
@@ -430,79 +456,108 @@ def _draw_print_footer(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: float):
 
 def build_reference_sheet(layout: WallLayout) -> bytes:
     """
-    Scaled reference sheet: single A3 page with the full wall layout scaled to fit,
-    labelled panels, and a drill-point table.
+    Scaled reference sheet: single A3 page.
+    Layout (top to bottom): title → subtitle → wall diagram (centred) → drill table (centred).
     """
-    # Fit wall into A3 with 20mm margins
-    margin_mm = 20.0
-    table_height_mm = 80.0  # reserved for the table at bottom
-    avail_w = A3_W_MM - 2 * margin_mm
-    avail_h = A3_H_MM - 2 * margin_mm - table_height_mm - 10.0
+    page_w_mm = A3_W_MM   # 297 mm
+    page_h_mm = A3_H_MM   # 420 mm
+    margin_mm = 15.0
+
+    # ── Vertical layout (all mm from TOP) ──────────────────────────────────
+    title_top     = margin_mm           # 15 mm
+    subtitle_top  = title_top + 9       # 24 mm
+    diagram_top   = subtitle_top + 7    # 31 mm
+
+    table_h_mm    = 75.0
+    table_lbl_h   = 16.0   # "Drill-Point Reference" heading + breathing room above table
+    # How much space is consumed by the bottom block (from bottom up):
+    bottom_block  = margin_mm + table_h_mm + table_lbl_h + 8.0   # 108 mm from bottom
+    diagram_bot   = page_h_mm - bottom_block                      # 312 mm from top
+
+    avail_w = page_w_mm - 2 * margin_mm   # 267 mm
+    avail_h = diagram_bot - diagram_top   # 276 mm
 
     scale = min(avail_w / layout.wall_width_mm, avail_h / layout.wall_height_mm)
     drawn_w = layout.wall_width_mm * scale
     drawn_h = layout.wall_height_mm * scale
 
-    # Centre the wall drawing horizontally
-    wall_offset_x_mm = margin_mm + (avail_w - drawn_w) / 2
-    wall_offset_y_mm = margin_mm + table_height_mm + 10.0
+    # Centre wall diagram horizontally; pin to top of available area
+    wall_x_mm = margin_mm + (avail_w - drawn_w) / 2   # mm from left
+    wall_y_mm = diagram_top                            # mm from top (slack goes below)
 
     buf = io.BytesIO()
-    page_w_pt = _mm(A3_W_MM)
-    page_h_pt = _mm(A3_H_MM)
+    page_w_pt = _mm(page_w_mm)
+    page_h_pt = _mm(page_h_mm)
     c = rl_canvas.Canvas(buf, pagesize=(page_w_pt, page_h_pt))
 
-    # Wall bounding box
-    c.setStrokeColor(colors.HexColor("#AAAAAA"))
-    c.setLineWidth(0.5)
-    wx = _mm(wall_offset_x_mm)
-    wy = page_h_pt - _mm(wall_offset_y_mm) - _mm(drawn_h)
-    c.rect(wx, wy, _mm(drawn_w), _mm(drawn_h), stroke=1, fill=0)
+    def _ypt(mm_from_top: float) -> float:
+        """mm from top of page → ReportLab pt from bottom."""
+        return page_h_pt - _mm(mm_from_top)
 
-    from app.services.geometry import rotate_point_about, panel_center as pc
+    def to_ref(wp: Point) -> Tuple[float, float]:
+        """Wall coords (mm) → ReportLab (pt, pt)."""
+        return _mm(wall_x_mm + wp.x_mm * scale), _ypt(wall_y_mm + wp.y_mm * scale)
+
+    # ── Title ───────────────────────────────────────────────────────────────
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(_mm(margin_mm), _ypt(title_top + 6),
+                 f"Reference Sheet - {layout.job_title}")
+
+    scale_str = f"Scale 1:{round(1 / scale)}" if scale < 1.0 else "Scale 1:1"
+    c.setFont("Helvetica", 9)
+    c.drawString(_mm(margin_mm), _ypt(subtitle_top + 5),
+                 f"Wall: {layout.wall_width_mm:.0f} x {layout.wall_height_mm:.0f} mm"
+                 f"   |   {scale_str}   |   {len(layout.panels)} panel(s)")
+
+    # ── Wall bounding box ───────────────────────────────────────────────────
+    wl, wt = to_ref(Point(0.0, 0.0))
+    wr, wb = to_ref(Point(layout.wall_width_mm, layout.wall_height_mm))
+    c.setStrokeColor(colors.HexColor("#BBBBBB"))
+    c.setLineWidth(0.5)
+    c.rect(wl, wb, wr - wl, wt - wb, stroke=1, fill=0)
+
+    from app.services.geometry import rotate_point_about, panel_center as _pcentre
 
     drill_rows: List[dict] = []
 
     for panel in layout.panels:
-        # Draw panel in scaled coords
+        centre = _pcentre(panel.x_mm, panel.y_mm, panel.width_mm, panel.height_mm)
+
         corners_local = [
             Point(0.0, 0.0),
             Point(panel.width_mm, 0.0),
             Point(panel.width_mm, panel.height_mm),
             Point(0.0, panel.height_mm),
         ]
-        centre = pc(panel.x_mm, panel.y_mm, panel.width_mm, panel.height_mm)
 
-        def to_ref_pdf(wp: Point) -> Tuple[float, float]:
-            sx = wall_offset_x_mm + wp.x_mm * scale
-            sy = wall_offset_y_mm + wp.y_mm * scale
-            return _mm(sx), page_h_pt - _mm(sy)
+        # Capture panel + centre in default args to avoid closure-over-loop-var bug
+        def _local_to_wall(lp: Point, p=panel, ctr=centre) -> Point:
+            wu = Point(p.x_mm + lp.x_mm, p.y_mm + lp.y_mm)
+            return rotate_point_about(wu, ctr, p.rotation_deg)
 
-        def local_to_wall(lp: Point) -> Point:
-            wall_unrotated = Point(panel.x_mm + lp.x_mm, panel.y_mm + lp.y_mm)
-            return rotate_point_about(wall_unrotated, centre, panel.rotation_deg)
-
-        wall_corners = [local_to_wall(lp) for lp in corners_local]
-        pdf_corners = [to_ref_pdf(wc) for wc in wall_corners]
+        wall_corners = [_local_to_wall(lp) for lp in corners_local]
+        pdf_corners  = [to_ref(wc) for wc in wall_corners]
 
         c.setStrokeColor(COLOUR_PANEL_OUTLINE)
-        c.setLineWidth(0.7)
+        c.setLineWidth(0.8)
         path = c.beginPath()
         path.moveTo(*pdf_corners[0])
-        for pc_ in pdf_corners[1:]:
-            path.lineTo(*pc_)
+        for pt_ in pdf_corners[1:]:
+            path.lineTo(*pt_)
         path.close()
         c.drawPath(path, stroke=1, fill=0)
 
         # Panel label at centroid
         cx = sum(p[0] for p in pdf_corners) / 4
         cy = sum(p[1] for p in pdf_corners) / 4
-        c.setFont("Helvetica-Bold", 6)
+        c.setFont("Helvetica-Bold", 7)
         c.setFillColor(COLOUR_LABEL)
         c.drawCentredString(cx, cy, panel.label)
 
         # Hole marks
         c.setStrokeColor(COLOUR_HOLE_MARK)
+        c.setFillColor(COLOUR_HOLE_MARK)
         c.setLineWidth(0.8)
         for hole in panel.holes:
             wall_pos = hole_to_wall(
@@ -511,8 +566,10 @@ def build_reference_sheet(layout: WallLayout) -> bytes:
                 panel.width_mm, panel.height_mm,
                 panel.rotation_deg,
             )
-            hx, hy = to_ref_pdf(wall_pos)
-            _draw_cross(c, hx, hy, size_pt=4.0)
+            hx, hy = to_ref(wall_pos)
+            _draw_cross(c, hx, hy, size_pt=5.0)
+            c.setFont("Helvetica", 5)
+            c.drawString(hx + 4, hy + 2, hole.label)
             drill_rows.append({
                 "panel": panel.label,
                 "hole": hole.label,
@@ -522,16 +579,20 @@ def build_reference_sheet(layout: WallLayout) -> bytes:
                 "panel_local_y": f"{hole.y_mm:.1f}",
             })
 
-    # Title
-    c.setFont("Helvetica-Bold", 12)
-    c.setFillColor(colors.black)
-    c.drawString(_mm(margin_mm), page_h_pt - _mm(margin_mm - 5), f"Reference Sheet - {layout.job_title}")
-    c.setFont("Helvetica", 8)
-    c.drawString(_mm(margin_mm), page_h_pt - _mm(margin_mm + 3),
-                 f"Wall: {layout.wall_width_mm:.0f} × {layout.wall_height_mm:.0f} mm  |  Scale 1:{1/scale:.0f}")
+    # ── Drill-point table ───────────────────────────────────────────────────
+    # Float the table right below the diagram (+12 mm gap), but never let it
+    # fall off the bottom margin area.
+    tbl_top_mm = wall_y_mm + drawn_h + 12
+    max_tbl_top_mm = page_h_mm - margin_mm - table_h_mm - table_lbl_h
+    tbl_top_mm = min(tbl_top_mm, max_tbl_top_mm)
 
-    # Drill-point table
-    _draw_drill_table(c, drill_rows, margin_mm, table_height_mm, page_h_pt, A3_W_MM)
+    tbl_lbl_y = _ypt(tbl_top_mm + 4)   # baseline 4mm below section top
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(colors.black)
+    c.drawCentredString(page_w_pt / 2, tbl_lbl_y, "Drill-Point Reference")
+
+    _draw_drill_table(c, drill_rows, margin_mm, table_h_mm, page_h_pt, page_w_mm,
+                      y_top_pt=_ypt(tbl_top_mm + table_lbl_h))
 
     c.save()
     return buf.getvalue()
@@ -544,24 +605,25 @@ def _draw_drill_table(
     table_h_mm: float,
     page_h_pt: float,
     page_w_mm: float,
+    y_top_pt: Optional[float] = None,
 ):
-    """Draw the drill-point reference table at the bottom of the reference sheet."""
+    """Draw the drill-point reference table, horizontally centred on the page."""
     headers = ["Panel", "Hole", "Wall X (mm)", "Wall Y (mm)", "Panel-local X", "Panel-local Y"]
-    col_widths_mm = [35, 35, 30, 30, 30, 30]
+    col_widths_mm = [28, 28, 35, 35, 35, 35]   # total = 196 mm
     col_widths_pt = [_mm(w) for w in col_widths_mm]
+    total_w_pt = sum(col_widths_pt)
 
-    table_top_y = page_h_pt - _mm(page_w_mm) + _mm(table_h_mm - 5)  # rough placement
-    # Actually position at bottom
-    y = _mm(margin_mm + table_h_mm - 5)
-    x = _mm(margin_mm)
-    row_h = _mm(5)
+    # Centre the table horizontally; start from caller-supplied y or default bottom position
+    x = (_mm(page_w_mm) - total_w_pt) / 2
+    y = y_top_pt if y_top_pt is not None else _mm(margin_mm + table_h_mm - 5)
+    row_h = _mm(5.5)
 
     c.setStrokeColor(colors.HexColor("#CCCCCC"))
     c.setLineWidth(0.3)
 
     # Header
     c.setFillColor(colors.HexColor("#EEEEEE"))
-    c.rect(x, y, sum(col_widths_pt), row_h, stroke=1, fill=1)
+    c.rect(x, y, total_w_pt, row_h, stroke=1, fill=1)
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 7)
     cx = x
@@ -575,7 +637,7 @@ def _draw_drill_table(
         if y < _mm(margin_mm):
             break
         c.setFillColor(colors.white)
-        c.rect(x, y, sum(col_widths_pt), row_h, stroke=1, fill=1)
+        c.rect(x, y, total_w_pt, row_h, stroke=1, fill=1)
         c.setFillColor(colors.black)
         cx = x
         for val, cw in zip(
