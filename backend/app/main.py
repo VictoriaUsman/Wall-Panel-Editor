@@ -2,6 +2,7 @@ import pathlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from app.db.session import engine
 from app.db.base import Base
@@ -54,4 +55,13 @@ async def health():
 
 # Serve built React frontend in production (must come after all API routes)
 if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="spa")
+    # Serve Vite's hashed asset files directly
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        # Serve real files (favicon.ico etc.) when they exist; otherwise hand off to React Router
+        candidate = FRONTEND_DIST / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
