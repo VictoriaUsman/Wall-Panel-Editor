@@ -29,9 +29,8 @@ def generate_presigned_put(storage_key: str, content_type: str) -> dict:
     Returns a mock presigned PUT response.
     In production: boto3 / r2 generate_presigned_url('put_object', ...).
     """
-    upload_url = f"{settings.MOCK_UPLOAD_BASE_URL}/api/mock-upload/{storage_key}"
     return {
-        "upload_url": upload_url,
+        "upload_url": f"/api/mock-upload/{storage_key}",
         "storage_key": storage_key,
         "method": "PUT",
         "headers": {"Content-Type": content_type},
@@ -39,7 +38,7 @@ def generate_presigned_put(storage_key: str, content_type: str) -> dict:
 
 
 def get_public_url(storage_key: str) -> str:
-    return f"{settings.MOCK_UPLOAD_BASE_URL}/api/uploads/{storage_key}"
+    return f"/api/uploads/{storage_key}"
 
 
 def local_path(storage_key: str) -> Path:
