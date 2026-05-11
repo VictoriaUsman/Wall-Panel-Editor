@@ -240,25 +240,40 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
             tile_origin_x = col * tile_w_mm - x_center_offset
             tile_origin_y = row * tile_h_mm - y_center_offset
 
-            # Background (white)
-            c.setFillColor(colors.white)
+            # Wall visibility within this tile (tile coords, mm)
+            x_wall_lo = max(0.0, -tile_origin_x)
+            x_wall_hi = min(tile_w_mm, layout.wall_width_mm - tile_origin_x)
+            y_wall_lo = max(0.0, -tile_origin_y)
+            y_wall_hi = min(tile_h_mm, layout.wall_height_mm - tile_origin_y)
+
+            # Background: light gray for outside-wall area, white for wall area
+            c.setFillColor(colors.HexColor("#EEEEEE"))
             c.rect(0, 0, page_w_pt, page_h_pt, stroke=0, fill=1)
+            if x_wall_lo < x_wall_hi and y_wall_lo < y_wall_hi:
+                c.setFillColor(colors.white)
+                c.rect(
+                    _mm(x_wall_lo),
+                    page_h_pt - _mm(y_wall_hi),
+                    _mm(x_wall_hi - x_wall_lo),
+                    _mm(y_wall_hi - y_wall_lo),
+                    stroke=0, fill=1,
+                )
 
             _draw_crop_marks(c, tile_w_mm, tile_h_mm)
 
-            # Dashed wall-boundary box so customer sees the exact wall area
+            # Dashed wall-boundary box
             tl = wall_to_tile_pdf(Point(0, 0), tile_origin_x, tile_origin_y, tile_h_mm)
             br = wall_to_tile_pdf(
                 Point(layout.wall_width_mm, layout.wall_height_mm),
                 tile_origin_x, tile_origin_y, tile_h_mm,
             )
             box_x = tl.x_pt
-            box_y = br.y_pt  # ReportLab bottom-left origin: br is lower y
+            box_y = br.y_pt
             box_w = br.x_pt - tl.x_pt
             box_h = tl.y_pt - br.y_pt
             if box_w > 0 and box_h > 0:
                 c.saveState()
-                c.setStrokeColor(COLOUR_GRID)
+                c.setStrokeColor(colors.HexColor("#AAAAAA"))
                 c.setLineWidth(0.5)
                 c.setDash([4, 3])
                 c.rect(box_x, box_y, box_w, box_h, stroke=1, fill=0)
@@ -268,12 +283,12 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
             for panel in layout.panels:
                 _draw_panel_on_tile(c, panel, tile_origin_x, tile_origin_y, tile_h_mm)
 
-            # Tile label
+            # Tile label — raised off the footer to avoid overlap
             c.setFillColor(COLOUR_LABEL)
             c.setFont("Helvetica-Bold", 8)
-            c.drawString(_mm(5), _mm(5), f"Tile {tile_num}/{total_tiles}  (col {col+1}/{cols}, row {row+1}/{rows})")
+            c.drawString(_mm(5), _mm(11), f"Tile {tile_num}/{total_tiles}  (col {col+1}/{cols}, row {row+1}/{rows})")
             c.setFont("Helvetica", 7)
-            c.drawString(_mm(5), _mm(12), f"{layout.job_title}  |  Wall: {layout.wall_width_mm:.0f} x {layout.wall_height_mm:.0f} mm")
+            c.drawString(_mm(5), _mm(18), f"{layout.job_title}  |  Wall: {layout.wall_width_mm:.0f} x {layout.wall_height_mm:.0f} mm")
 
             # CRITICAL footer: print-size warning
             _draw_print_footer(c, tile_w_mm, tile_h_mm)
