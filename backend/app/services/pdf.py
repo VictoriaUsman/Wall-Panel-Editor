@@ -154,9 +154,9 @@ def _draw_panel_on_tile(
         pp = wall_to_tile_pdf(wp, tile_origin_x_mm, tile_origin_y_mm, tile_h_mm)
         return pp.x_pt, pp.y_pt
 
-    # Draw panel outline
+    # Panel outline — 2pt so it reads clearly at 1:1 scale against the wall
     c.setStrokeColor(COLOUR_PANEL_OUTLINE)
-    c.setLineWidth(1.0)
+    c.setLineWidth(2.0)
     path = c.beginPath()
     x0, y0 = to_pdf(wall_corners[0])
     path.moveTo(x0, y0)
@@ -172,21 +172,25 @@ def _draw_panel_on_tile(
         sum(wc.y_mm for wc in wall_corners) / 4,
     ))
     c.setFillColor(COLOUR_LABEL)
-    c.setFont("Helvetica", 7)
-    c.drawCentredString(cw[0], cw[1] - 3, panel.label)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(cw[0], cw[1] - 4, panel.label)
 
     if not panel.has_hole_config:
-        c.setFont("Helvetica-Oblique", 6)
+        c.setFont("Helvetica-Oblique", 7)
         c.setFillColor(colors.orange)
-        c.drawCentredString(cw[0], cw[1] - 11, "[!] needs hole config")
+        c.drawCentredString(cw[0], cw[1] - 14, "[!] needs hole config")
 
     if not draw_holes:
         return
 
-    # Draw hole marks
+    # Hole marks — large ✕ (10 mm arm length) so they're easy to centre a drill bit on.
+    # A small filled circle at the exact drill point gives a precise target.
+    CROSS_MM = 10.0   # total arm length in mm
+    LABEL_OFFSET_MM = 5.0
+
     c.setStrokeColor(COLOUR_HOLE_MARK)
     c.setFillColor(COLOUR_HOLE_MARK)
-    c.setLineWidth(1.5)
+    c.setLineWidth(2.0)
 
     for hole in panel.holes:
         wall_pos = hole_to_wall(
@@ -196,11 +200,16 @@ def _draw_panel_on_tile(
             panel.rotation_deg,
         )
         hx, hy = to_pdf(wall_pos)
-        _draw_cross(c, hx, hy, size_pt=8.0)
+        _draw_cross(c, hx, hy, size_pt=_mm(CROSS_MM))
 
-        # Hole label
-        c.setFont("Helvetica", 5)
-        c.drawString(hx + 5, hy + 2, hole.label)
+        # Solid 2 mm dot at the exact drill centre
+        c.setFillColor(COLOUR_HOLE_MARK)
+        c.circle(hx, hy, _mm(1.0), stroke=0, fill=1)
+
+        # Hole label — bold, offset so it clears the cross arm
+        c.setFillColor(COLOUR_HOLE_MARK)
+        c.setFont("Helvetica-Bold", 7)
+        c.drawString(hx + _mm(LABEL_OFFSET_MM) + 2, hy + 2, hole.label)
 
 
 def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] = (A4_W_MM, A4_H_MM)) -> bytes:
@@ -218,7 +227,8 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
     c = rl_canvas.Canvas(buf, pagesize=(page_w_pt, page_h_pt))
 
     # --- Page 1: calibration + instructions ---
-    _draw_calibration_page(c, tile_w_mm, tile_h_mm, layout.job_title)
+    _draw_calibration_page(c, tile_w_mm, tile_h_mm, layout.job_title,
+                           layout.wall_width_mm, layout.wall_height_mm)
     c.showPage()
 
     # Compute the bounding box of all panels (+ margin) so we only generate
@@ -310,6 +320,10 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
             for panel in layout.panels:
                 _draw_panel_on_tile(c, panel, tile_origin_x, tile_origin_y, tile_h_mm)
 
+            # Corner position labels — tell the customer which section of the wall
+            # this tile represents (wall coords at each corner, in mm).
+            _draw_tile_corner_coords(c, tile_origin_x, tile_origin_y, tile_w_mm, tile_h_mm)
+
             # Tile label — raised off the footer to avoid overlap
             c.setFillColor(COLOUR_LABEL)
             c.setFont("Helvetica-Bold", 8)
@@ -327,13 +341,61 @@ def build_tiled_template(layout: WallLayout, page_size_mm: Tuple[float, float] =
     return buf.getvalue()
 
 
-def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: float, job_title: str):
+def _draw_tile_corner_coords(
+    c: rl_canvas.Canvas,
+    tile_origin_x: float,
+    tile_origin_y: float,
+    tile_w_mm: float,
+    tile_h_mm: float,
+):
+    """
+    Print the wall-coordinate position at each corner of the tile so the customer
+    can orient the sheet on the wall.  All four labels are inside the page margin
+    (3 mm in from each edge) and use a small gray font so they don't interfere
+    with the drill marks.
+
+    Format:  (X mm, Y mm)  where X/Y are measured from the wall's top-left corner.
+    """
+    MARGIN = 3.0
+    FONT_SIZE = 6
+    colour = colors.HexColor("#999999")
+
+    # Bottom labels must sit above the footer block (tile label at 11mm, job title at 18mm).
+    # Use 23mm from bottom so they are clear of both footer lines.
+    corners = [
+        # (page_x_mm, page_y_mm_from_bottom, wall_x_mm,                  wall_y_mm,                  h_align)
+        (MARGIN,             tile_h_mm - MARGIN - 2, tile_origin_x,              tile_origin_y,             "left"),
+        (tile_w_mm - MARGIN, tile_h_mm - MARGIN - 2, tile_origin_x + tile_w_mm, tile_origin_y,             "right"),
+        (MARGIN,             23.0,                   tile_origin_x,              tile_origin_y + tile_h_mm, "left"),
+        (tile_w_mm - MARGIN, 23.0,                   tile_origin_x + tile_w_mm, tile_origin_y + tile_h_mm, "right"),
+    ]
+
+    c.setFont("Helvetica", FONT_SIZE)
+    c.setFillColor(colour)
+    for px, py, wx, wy, align in corners:
+        label = f"({wx:.0f}, {wy:.0f}) mm"
+        x_pt = _mm(px)
+        y_pt = _mm(py)
+        if align == "right":
+            c.drawRightString(x_pt, y_pt, label)
+        else:
+            c.drawString(x_pt, y_pt, label)
+
+
+def _draw_calibration_page(
+    c: rl_canvas.Canvas,
+    tile_w_mm: float,
+    tile_h_mm: float,
+    job_title: str,
+    wall_width_mm: float = 0.0,
+    wall_height_mm: float = 0.0,
+):
     """
     Page 1 of the tiled PDF: calibration square + full printing instructions.
     Safety-critical: customer MUST verify this before drilling.
 
     Layout:
-      [title / warning]
+      [title / wall dims / warning]
       [100mm square] | [measure / reprint note]
       [full-width 2-column printer settings]
       [assembly instructions]
@@ -350,7 +412,15 @@ def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: flo
     c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 14)
     c.drawString(_mm(10), y, f"HANGING TEMPLATE - {job_title}")
-    y -= _mm(8)
+    y -= _mm(7)
+
+    # Wall dimensions — shown prominently so customer knows this is the right document
+    if wall_width_mm and wall_height_mm:
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(colors.black)
+        c.drawString(_mm(10), y, f"Wall size: {wall_width_mm:.0f} mm wide  ×  {wall_height_mm:.0f} mm tall")
+        y -= _mm(7)
+
     c.setFont("Helvetica-Bold", 11)
     c.setFillColor(COLOUR_HOLE_MARK)
     c.drawString(_mm(10), y, ">>> STEP 1: VERIFY PRINT SCALE BEFORE DOING ANYTHING ELSE <<<")
@@ -368,7 +438,10 @@ def _draw_calibration_page(c: rl_canvas.Canvas, tile_w_mm: float, tile_h_mm: flo
     # Horizontal dimension label (below square, clear of instruction column)
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(COLOUR_CALIBRATION)
-    c.drawCentredString(sq_x + sq_side / 2, sq_y - _mm(7), "<-- 100 mm -->")
+    c.drawCentredString(sq_x + sq_side / 2, sq_y - _mm(5), "<-- 100 mm -->")
+    c.setFont("Helvetica", 7)
+    c.setFillColor(colors.HexColor("#666666"))
+    c.drawCentredString(sq_x + sq_side / 2, sq_y - _mm(10), "(scale check — not your wall size)")
 
     # Vertical dimension label (right of square, rotated so it reads upward)
     c.saveState()
